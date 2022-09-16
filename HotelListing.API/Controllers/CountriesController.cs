@@ -6,10 +6,13 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using HotelListing.API.Data;
-using HotelListing.API.Models.Country;
+using HotelListing.API.Core.Models.Country;
 using AutoMapper;
-using HotelListing.API.Contracts;
+using HotelListing.API.Core.Contracts;
 using Microsoft.AspNetCore.Authorization;
+using HotelListing.API.Core.Exceptions;
+using HotelListing.API.Core.Models;
+using Microsoft.AspNetCore.OData.Query;
 
 namespace HotelListing.API.Controllers
 {
@@ -20,22 +23,34 @@ namespace HotelListing.API.Controllers
     {
         private readonly IMapper _mapper;
         private readonly ICountryRepository _countryRepository;
+        private readonly ILogger<CountriesController> _logger;
 
-        public CountriesController(IMapper mapper, ICountryRepository countryRepository)
+        public CountriesController(IMapper mapper, ICountryRepository countryRepository, ILogger<CountriesController> logger)
         {
            
             _mapper = mapper;
             _countryRepository = countryRepository;
+            this._logger = logger;
         }
 
         // GET: api/Countries
-        [HttpGet]
+        [HttpGet("GetAll")]
+        [EnableQuery]
         public async Task<ActionResult<IEnumerable<GetCountryDto>>> GetCountries()
         {
          
-          var countries = await _countryRepository.GetAllAsync();
-          var records = _mapper.Map<List<GetCountryDto>>(countries);
-          return Ok(records);
+          var countries = await _countryRepository.GetAllAsync<GetCountryDto>();
+          
+          return Ok(countries);
+        }
+
+        // GET: api/Countries?StartIndex=0&pageSize=25&PageNumber=1
+        [HttpGet]
+        public async Task<ActionResult<PagedResult<GetCountryDto>>> GetPagedCountries([FromQuery] QueryParameters queryParameters)
+        {
+
+            var pagedCountriesResult = await _countryRepository.GetAllAsync<GetCountryDto>(queryParameters);
+            return Ok(pagedCountriesResult);
         }
 
         // GET: api/Countries/5
@@ -45,13 +60,7 @@ namespace HotelListing.API.Controllers
         
             var country = await _countryRepository.GetDetails(id);
 
-            if (country == null)
-            {
-                return NotFound();
-            }
-
-            var record = _mapper.Map<CountryDto>(country);
-            return Ok(record);
+            return Ok(country);
         }
 
         // PUT: api/Countries/5
@@ -65,16 +74,10 @@ namespace HotelListing.API.Controllers
                 return BadRequest();
             }
 
-            var country = await _countryRepository.GetAsync(id);
-            if (country == null)
-            {
-                return NotFound();
-            }
-            _mapper.Map(updateCountryDto, country);
 
             try
             {
-                await _countryRepository.UpdateAsync(country);
+                await _countryRepository.UpdateAsync(id, updateCountryDto);
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -98,12 +101,8 @@ namespace HotelListing.API.Controllers
         public async Task<ActionResult<Country>> PostCountry(CreateCountryDto createCountry)
         {
        
-            var country = _mapper.Map<Country>(createCountry);
-
-            await _countryRepository.AddAsync(country);
-           
-
-            return CreatedAtAction("GetCountry", new { id = country.Id }, country);
+            var country = await _countryRepository.AddAsync<CreateCountryDto, GetCountryDto>(createCountry);
+            return CreatedAtAction(nameof(GetCountry), new { id = country.Id }, country);
         }
 
         // DELETE: api/Countries/5
@@ -111,14 +110,7 @@ namespace HotelListing.API.Controllers
         [Authorize(Roles = "Administrator")]
         public async Task<IActionResult> DeleteCountry(int id)
         {
-            var country = await _countryRepository.GetAsync(id);
-            if (country == null)
-            {
-                return NotFound();
-            }
-
             await _countryRepository.DeleteAsync(id);
-
             return NoContent();
         }
 
